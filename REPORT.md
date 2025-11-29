@@ -312,6 +312,10 @@ This makes it easy to debug:
 	•	Poor retrieval (irrelevant docs)
 	•	Hallucinations or low-quality answers
 
+### 7.3 Tracing example
+
+![langfuse example][./docs/langfuse.png]
+
 ⸻
 
 ## 8. Quality Evaluation (Bonus)
