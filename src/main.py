@@ -5,21 +5,21 @@ This module provides the primary interface for the multi-agent system,
 handling initialization, query processing, and quality evaluation.
 """
 
+import shutil
+from src.retrievers.cached_faiss_retriever import CachedFAISSRetriever
+from src.utils import langfuse_client
+from src.config import settings
+from src.evaluator import ResponseQualityEvaluator
+from src.orchestrator import MultiAgentOrchestrator
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+import time
+import json
+import asyncio
 import os
+import argparse
 # Set tokenizer parallelism early to avoid warnings
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-
-import asyncio
-import json
-import time
-from typing import Dict, List, Optional, Any
-from pathlib import Path
-
-from src.orchestrator import MultiAgentOrchestrator
-from src.evaluator import ResponseQualityEvaluator
-from src.config import settings
-from src.utils import langfuse_client
-from src.retrievers.cached_faiss_retriever import CachedFAISSRetriever
 
 
 class MultiAgentSystem:
@@ -35,7 +35,8 @@ class MultiAgentSystem:
             force_rebuild: Force rebuild all FAISS indices
             use_persistent: Enable/disable persistent storage
         """
-        self.orchestrator = MultiAgentOrchestrator(force_rebuild=force_rebuild, use_persistent=use_persistent)
+        self.orchestrator = MultiAgentOrchestrator(
+            force_rebuild=force_rebuild, use_persistent=use_persistent)
         self.evaluator = ResponseQualityEvaluator()
         self._initialized = False
         self.force_rebuild = force_rebuild
@@ -67,7 +68,8 @@ class MultiAgentSystem:
             initialization_time = time.time() - start_time
             self._initialized = True
 
-            print(f"✅ Multi-Agent System initialized successfully in {initialization_time:.2f} seconds")
+            print(
+                f"✅ Multi-Agent System initialized successfully in {initialization_time:.2f} seconds")
             print("System initialized successfully")
 
         except Exception as e:
@@ -92,7 +94,8 @@ class MultiAgentSystem:
             Dictionary containing the complete response
         """
         if not self._initialized:
-            raise RuntimeError("System not initialized. Call initialize() first.")
+            raise RuntimeError(
+                "System not initialized. Call initialize() first.")
 
         try:
             # Process query through orchestrator
@@ -119,11 +122,26 @@ class MultiAgentSystem:
                         doc['content'] for doc in result['source_documents']
                     ])
 
+                    # Create a separate trace for quality evaluation for better debugging
+                    quality_trace = langfuse_client.create_trace(
+                        name=f"quality_evaluation_for_{response.agent_used}",
+                        input=f"Query: {result['query'][:100]}...",
+                        user_id=user_id,
+                        metadata={
+                            'parent_trace_id': 'multi_agent_query_processing',
+                            'evaluation_type': 'response_quality',
+                            'department': response.department,
+                            'service_name': 'henry_bot_M3',
+                            'source': 'terminal_cli'
+                        }
+                    )
+
                     evaluation = await self.evaluator.evaluate_response(
                         query=result['query'],
                         answer=result['answer'],
                         context=context,
-                        source_documents=result['source_documents']
+                        source_documents=result['source_documents'],
+                        trace=quality_trace
                     )
 
                     result['quality_evaluation'] = {
@@ -132,6 +150,17 @@ class MultiAgentSystem:
                         'reasoning': evaluation.reasoning,
                         'recommendations': evaluation.recommendations
                     }
+
+                    # Update quality trace with final results
+                    if quality_trace:
+                        quality_trace.update(
+                            output=f"Quality Score: {evaluation.overall_score}/10",
+                            metadata={
+                                'evaluation_complete': True,
+                                'quality_tier': self._get_quality_tier(evaluation.overall_score),
+                                'num_recommendations': len(evaluation.recommendations)
+                            }
+                        )
 
                 except Exception as e:
                     print(f"Quality evaluation failed: {e}")
@@ -142,10 +171,17 @@ class MultiAgentSystem:
                         'recommendations': ['Manual review recommended']
                     }
 
+            # Flush all traces at the end of the complete operation
+            langfuse_client.flush()
+
             return result
 
         except Exception as e:
             print(f"Error processing query: {e}")
+
+            # Flush traces even on error to ensure complete observability
+            langfuse_client.flush()
+
             return {
                 'query': query,
                 'answer': "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists.",
@@ -187,9 +223,10 @@ class MultiAgentSystem:
             for i, query_data in enumerate(queries):
                 query = query_data.get('query', '')
                 expected_department = query_data.get('expected_department')
-                user_id = query_data.get('user_id', f'test_user_{i}')
+                user_id = query_data.get('user_id', f'terminal_test_user_{i}')
 
-                print(f"\nProcessing query {i + 1}/{len(queries)}: {query[:50]}...")
+                print(
+                    f"\nProcessing query {i + 1}/{len(queries)}: {query[:50]}...")
 
                 result = await self.process_query(query, user_id, evaluate_quality)
                 results.append({
@@ -205,13 +242,17 @@ class MultiAgentSystem:
                 if r['expected_department'] and r['result']['department'] == r['expected_department']
             )
 
-            classification_accuracy = correct_classifications / len(results) if results else 0
-            avg_confidence = sum(r['result']['confidence'] for r in results) / len(results) if results else 0
-            avg_processing_time = sum(r['result']['processing_time'] for r in results) / len(results) if results else 0
+            classification_accuracy = correct_classifications / \
+                len(results) if results else 0
+            avg_confidence = sum(r['result']['confidence']
+                                 for r in results) / len(results) if results else 0
+            avg_processing_time = sum(r['result']['processing_time']
+                                      for r in results) / len(results) if results else 0
 
             if evaluate_quality:
                 avg_quality_score = sum(
-                    r['result'].get('quality_evaluation', {}).get('overall_score', 0)
+                    r['result'].get('quality_evaluation', {}
+                                    ).get('overall_score', 0)
                     for r in results
                 ) / len(results) if results else 0
             else:
@@ -297,6 +338,17 @@ class MultiAgentSystem:
         except Exception as e:
             print(f"Error during shutdown: {e}")
 
+    def _get_quality_tier(self, overall_score: float) -> str:
+        """Categorize quality score into tiers."""
+        if overall_score >= 8.5:
+            return "excellent"
+        elif overall_score >= 7.0:
+            return "good"
+        elif overall_score >= 5.0:
+            return "acceptable"
+        else:
+            return "needs_improvement"
+
     def clear_cache(self, department: str = None) -> None:
         """Clear system caches.
 
@@ -334,7 +386,6 @@ class MultiAgentSystem:
             cleared_any = False
             for store_dir in store_dirs:
                 if store_dir.exists():
-                    import shutil
                     shutil.rmtree(store_dir)
                     print(f"Cleared store for {department}: {store_dir}")
                     cleared_any = True
@@ -342,10 +393,10 @@ class MultiAgentSystem:
                 print(f"No store found for department: {department}")
         else:
             # Clear all stores
-            store_dirs = [Path(settings.faiss_indices_dir), Path(settings.embeddings_dir), Path(settings.metadata_dir)]
+            store_dirs = [Path(settings.faiss_indices_dir), Path(
+                settings.embeddings_dir), Path(settings.metadata_dir)]
             for store_dir in store_dirs:
                 if store_dir.exists():
-                    import shutil
                     shutil.rmtree(store_dir)
                     print(f"Cleared store directory: {store_dir}")
             print("All persistent stores cleared")
@@ -353,8 +404,10 @@ class MultiAgentSystem:
     def get_store_info(self) -> Dict[str, Any]:
         """Get information about persistent FAISS indices storage."""
         # Use default paths if settings are not accessible
-        faiss_indices_dir = getattr(settings, 'faiss_indices_dir', './store/faiss_indices')
-        embeddings_dir = getattr(settings, 'embeddings_dir', './store/embeddings')
+        faiss_indices_dir = getattr(
+            settings, 'faiss_indices_dir', './store/faiss_indices')
+        embeddings_dir = getattr(
+            settings, 'embeddings_dir', './store/embeddings')
         metadata_dir = getattr(settings, 'metadata_dir', './store/metadata')
         use_persistent = getattr(settings, 'use_persistent_storage', True)
 
@@ -386,8 +439,10 @@ class MultiAgentSystem:
 
             dept_info['total_size_mb'] = total_size / (1024 * 1024)
             # All files except size exist
-            required_files = ['faiss_index', 'embeddings', 'metadata', 'documents']
-            dept_info['complete'] = all(dept_info[file] for file in required_files)
+            required_files = ['faiss_index',
+                              'embeddings', 'metadata', 'documents']
+            dept_info['complete'] = all(dept_info[file]
+                                        for file in required_files)
 
             store_info['departments'][dept] = dept_info
 
@@ -424,17 +479,22 @@ class MultiAgentSystem:
 # CLI interface
 async def main():
     """Main CLI interface for the multi-agent system."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Multi-Agent Intelligent Routing System")
-    parser.add_argument('command', choices=['init', 'query', 'test', 'status', 'cache-clear', 'cache-info', 'store-clear', 'store-info'], help='Command to execute')
+    parser = argparse.ArgumentParser(
+        description="Multi-Agent Intelligent Routing System")
+    parser.add_argument('command', choices=['init', 'query', 'test', 'status', 'cache-clear',
+                        'cache-info', 'store-clear', 'store-info'], help='Command to execute')
     parser.add_argument('--query', type=str, help='Query to process')
-    parser.add_argument('--file', type=str, default='test_queries.json', help='Test queries file')
-    parser.add_argument('--no-evaluation', action='store_true', help='Skip quality evaluation')
+    parser.add_argument('--file', type=str,
+                        default='test_queries.json', help='Test queries file')
+    parser.add_argument('--no-evaluation', action='store_true',
+                        help='Skip quality evaluation')
     parser.add_argument('--user-id', type=str, help='User ID for tracing')
-    parser.add_argument('--department', type=str, help='Department for cache operations (hr, tech, finance)')
-    parser.add_argument('--force-rebuild', action='store_true', help='Force rebuild all FAISS indices')
-    parser.add_argument('--no-persistent', action='store_true', help='Disable persistent storage')
+    parser.add_argument('--department', type=str,
+                        help='Department for cache operations (hr, tech, finance)')
+    parser.add_argument('--force-rebuild', action='store_true',
+                        help='Force rebuild all FAISS indices')
+    parser.add_argument('--no-persistent', action='store_true',
+                        help='Disable persistent storage')
 
     args = parser.parse_args()
 
@@ -456,7 +516,7 @@ async def main():
             await system.initialize()
             response = await system.process_query(
                 args.query,
-                args.user_id,
+                args.user_id or "terminal",  # Use "terminal" as default for CLI queries
                 not args.no_evaluation
             )
 
@@ -494,12 +554,15 @@ async def main():
             print("TEST RESULTS SUMMARY")
             print("="*80)
             print(f"Total Queries: {summary['total_queries']}")
-            print(f"Classification Accuracy: {summary['classification_accuracy']:.1%}")
+            print(
+                f"Classification Accuracy: {summary['classification_accuracy']:.1%}")
             print(f"Average Confidence: {summary['avg_confidence']:.3f}")
-            print(f"Average Processing Time: {summary['avg_processing_time']:.3f}s")
+            print(
+                f"Average Processing Time: {summary['avg_processing_time']:.3f}s")
             print(f"Total Time: {summary['total_time']:.3f}s")
             if summary['avg_quality_score']:
-                print(f"Average Quality Score: {summary['avg_quality_score']}/10")
+                print(
+                    f"Average Quality Score: {summary['avg_quality_score']}/10")
             print("="*80)
 
         elif args.command == 'status':
@@ -510,9 +573,11 @@ async def main():
             print(f"Overall Status: {status['status']}")
             if 'components' in status:
                 for component, initialized in status['components'].items():
-                    print(f"{component.capitalize()}: {'✅' if initialized else '❌'}")
+                    print(
+                        f"{component.capitalize()}: {'✅' if initialized else '❌'}")
             if 'available_departments' in status:
-                print(f"Available Departments: {', '.join(status['available_departments'])}")
+                print(
+                    f"Available Departments: {', '.join(status['available_departments'])}")
             print("="*80)
 
         elif args.command == 'cache-clear':
@@ -530,9 +595,11 @@ async def main():
                 print(f"\nDepartment Caches:")
                 for dept, info in cache_info['departments'].items():
                     print(f"\n  {dept.upper()}:")
-                    print(f"    Embeddings: {'✅' if info['embeddings_cached'] else '❌'}")
+                    print(
+                        f"    Embeddings: {'✅' if info['embeddings_cached'] else '❌'}")
                     print(f"    Index: {'✅' if info['index_cached'] else '❌'}")
-                    print(f"    Metadata: {'✅' if info['metadata_cached'] else '❌'}")
+                    print(
+                        f"    Metadata: {'✅' if info['metadata_cached'] else '❌'}")
                     print(f"    Size: {info['total_size_mb']:.2f} MB")
             else:
                 print("\nNo cached data found.")
@@ -546,7 +613,8 @@ async def main():
             print("\n" + "="*80)
             print("PERSISTENT STORE INFORMATION")
             print("="*80)
-            print(f"Store Enabled: {'✅' if store_info['store_enabled'] else '❌'}")
+            print(
+                f"Store Enabled: {'✅' if store_info['store_enabled'] else '❌'}")
             print(f"FAISS Indices: {store_info['faiss_indices_dir']}")
             print(f"Embeddings: {store_info['embeddings_dir']}")
             print(f"Metadata: {store_info['metadata_dir']}")
@@ -556,10 +624,13 @@ async def main():
                 for dept, info in store_info['departments'].items():
                     print(f"\n  {dept.upper()}:")
                     print(f"    Complete: {'✅' if info['complete'] else '❌'}")
-                    print(f"    FAISS Index: {'✅' if info['faiss_index'] else '❌'}")
-                    print(f"    Embeddings: {'✅' if info['embeddings'] else '❌'}")
+                    print(
+                        f"    FAISS Index: {'✅' if info['faiss_index'] else '❌'}")
+                    print(
+                        f"    Embeddings: {'✅' if info['embeddings'] else '❌'}")
                     print(f"    Metadata: {'✅' if info['metadata'] else '❌'}")
-                    print(f"    Documents: {'✅' if info['documents'] else '❌'}")
+                    print(
+                        f"    Documents: {'✅' if info['documents'] else '❌'}")
                     print(f"    Size: {info['total_size_mb']:.2f} MB")
             else:
                 print("\nNo persistent stores found.")

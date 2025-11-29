@@ -108,28 +108,120 @@ class RAGAgent(BaseAgent):
         start_time = time.time()
 
         try:
-            # Retrieve relevant documents
-            retrieval_start = time.time()
-            retrieved_docs = await self._retriever.retrieve(query)
-            retrieval_time = time.time() - retrieval_start
-
-            # Log retrieval with Langfuse
+            # Create comprehensive RAG processing span
             if trace:
-                langfuse_client.log_rag_retrieval(
-                    trace=trace,
-                    query=query,
-                    retrieved_docs=[doc.content for doc in retrieved_docs],
-                    similarity_scores=[doc.similarity_score for doc in retrieved_docs],
-                    retrieval_time=retrieval_time
-                )
+                with trace.span(
+                    name="rag_pipeline",
+                    input=query,
+                    metadata={
+                        'stage': 'rag_processing',
+                        'agent_name': self.name,
+                        'department': self.department,
+                        'embedding_model': settings.embedding_model
+                    }
+                ) as rag_pipeline_span:
 
-            # Generate contextual prompt
-            contextual_prompt = await self._generate_contextual_prompt(query, retrieved_docs)
+                    # Document Retrieval with span
+                    with trace.span(
+                        name="document_retrieval",
+                        input=query,
+                        metadata={
+                            'stage': 'retrieval',
+                            'similarity_top_k': self.similarity_top_k,
+                            'retriever_type': 'faiss'
+                        }
+                    ) as retrieval_span:
 
-            # Generate response using LLM
-            llm_start = time.time()
-            llm_response = await self._call_llm(contextual_prompt)
-            llm_time = time.time() - llm_start
+                        retrieval_start = time.time()
+                        retrieved_docs = await self._retriever.retrieve(query)
+                        retrieval_time = time.time() - retrieval_start
+
+                        # Update retrieval span with results
+                        retrieval_span.update(
+                            output=f"Retrieved {len(retrieved_docs)} documents",
+                            metadata={
+                                'num_documents_retrieved': len(retrieved_docs),
+                                'retrieval_time_seconds': retrieval_time,
+                                'similarity_scores': [doc.similarity_score for doc in retrieved_docs],
+                                'avg_similarity': sum(doc.similarity_score for doc in retrieved_docs) / len(retrieved_docs) if retrieved_docs else 0
+                            }
+                        )
+
+                        # Also log as event for detailed metrics
+                        langfuse_client.log_rag_retrieval(
+                            trace=trace,
+                            query=query,
+                            retrieved_docs=[doc.content for doc in retrieved_docs],
+                            similarity_scores=[doc.similarity_score for doc in retrieved_docs],
+                            retrieval_time=retrieval_time
+                        )
+
+                    # Context Generation with span
+                    with trace.span(
+                        name="context_generation",
+                        input=f"Query + {len(retrieved_docs)} documents",
+                        metadata={
+                            'stage': 'prompt_construction',
+                            'context_length': sum(len(doc.content) for doc in retrieved_docs),
+                            'num_context_docs': len(retrieved_docs)
+                        }
+                    ) as context_span:
+
+                        contextual_prompt = await self._generate_contextual_prompt(query, retrieved_docs)
+
+                        context_span.update(
+                            output=f"Generated prompt of {len(contextual_prompt)} characters",
+                            metadata={
+                                'prompt_length': len(contextual_prompt),
+                                'context_docs_used': len(retrieved_docs)
+                            }
+                        )
+
+                    # LLM Generation with span
+                    with trace.span(
+                        name="llm_generation",
+                        input=contextual_prompt[:500] + "..." if len(contextual_prompt) > 500 else contextual_prompt,
+                        metadata={
+                            'stage': 'response_generation',
+                            'model_name': self.model_name,
+                            'agent_department': self.department
+                        }
+                    ) as llm_span:
+
+                        llm_start = time.time()
+                        llm_response = await self._call_llm(contextual_prompt, trace)
+                        llm_time = time.time() - llm_start
+
+                        llm_span.update(
+                            output=llm_response[:200] + "..." if len(llm_response) > 200 else llm_response,
+                            metadata={
+                                'llm_response_time_seconds': llm_time,
+                                'response_length': len(llm_response),
+                                'model_used': self.model_name
+                            }
+                        )
+
+                    # Update the main RAG pipeline span
+                    rag_pipeline_span.update(
+                        output=llm_response[:300] + "..." if len(llm_response) > 300 else llm_response,
+                        metadata={
+                            'total_pipeline_time_seconds': time.time() - start_time,
+                            'retrieval_time_seconds': retrieval_time,
+                            'llm_time_seconds': llm_time,
+                            'documents_used': len(retrieved_docs)
+                        }
+                    )
+            else:
+                # Fallback processing without tracing
+                retrieval_start = time.time()
+                retrieved_docs = await self._retriever.retrieve(query)
+                retrieval_time = time.time() - retrieval_start
+
+                contextual_prompt = await self._generate_contextual_prompt(query, retrieved_docs)
+
+                llm_start = time.time()
+                llm_response = await self._call_llm(contextual_prompt, trace)
+                llm_time = time.time() - llm_start
 
             # Calculate confidence based on retrieval scores and response quality
             confidence = self._calculate_confidence(retrieved_docs, llm_response)
@@ -245,12 +337,13 @@ class RAGAgent(BaseAgent):
             "You are a helpful company assistant. Provide accurate, professional assistance with employee inquiries."
         )
 
-    async def _call_llm(self, prompt: str) -> str:
+    async def _call_llm(self, prompt: str, trace=None) -> str:
         """
         Call the LLM with the given prompt.
 
         Args:
             prompt: The prompt to send to the LLM
+            trace: Optional Langfuse trace for observability
 
         Returns:
             LLM response string
@@ -258,6 +351,7 @@ class RAGAgent(BaseAgent):
         if not self._llm_client:
             raise RuntimeError("LLM client not initialized")
 
+        start_time = time.time()
         try:
             response = self._llm_client.chat.completions.create(
                 model=self.model_name,
@@ -268,10 +362,55 @@ class RAGAgent(BaseAgent):
                 temperature=0.3,
             )
 
-            return response.choices[0].message.content.strip()
+            response_time = time.time() - start_time
+            content = response.choices[0].message.content.strip()
+
+            # Log LLM call with enhanced debugging
+            if trace:
+                token_usage = {
+                    "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                    "total_tokens": response.usage.total_tokens if response.usage else 0
+                }
+
+                langfuse_client.log_llm_call(
+                    trace=trace,
+                    model_name=self.model_name,
+                    prompt=prompt,
+                    response=content,
+                    token_usage=token_usage,
+                    response_time=response_time,
+                    temperature=0.3,
+                    max_tokens=1000,
+                    metadata={
+                        'department': self.department,
+                        'agent_name': self.name,
+                        'model_provider': 'openrouter',
+                        'response_finish_reason': response.choices[0].finish_reason if response.choices else None,
+                        'response_id': response.id
+                    }
+                )
+
+            return content
 
         except Exception as e:
-            print(f"Error calling LLM: {e}")
+            error_time = time.time() - start_time
+            error_msg = f"Error calling LLM: {e}"
+
+            # Log LLM error
+            if trace:
+                langfuse_client.log_error(
+                    trace=trace,
+                    error_message=error_msg,
+                    error_type="llm_call_error",
+                    context={
+                        'model_name': self.model_name,
+                        'department': self.department,
+                        'error_time_seconds': error_time,
+                        'prompt_preview': prompt[:200] if prompt else None
+                    }
+                )
+
             raise
 
     def _calculate_confidence(self, retrieved_docs: List[RetrievedDocument], response: str) -> float:

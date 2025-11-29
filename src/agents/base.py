@@ -5,7 +5,6 @@ Base agent interface for specialized department agents.
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
-import asyncio
 
 
 @dataclass

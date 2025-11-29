@@ -3,7 +3,7 @@ Integration tests for the multi-agent intelligent routing system.
 """
 
 import pytest
-import asyncio
+import pytest_asyncio
 import json
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from src.orchestrator import MultiAgentOrchestrator
 from src.evaluator import ResponseQualityEvaluator
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def multi_agent_system():
     """Fixture to initialize the multi-agent system for testing."""
     system = MultiAgentSystem()
@@ -62,7 +62,8 @@ class TestMultiAgentIntegration:
 
         # Content validation
         assert response['query'] == query
-        assert response['department'] in ['hr', 'tech', 'finance', 'general', 'error']
+        assert response['department'] in [
+            'hr', 'tech', 'finance', 'general', 'error']
         assert len(response['answer']) > 0
         assert 0 <= response['confidence'] <= 1
         assert response['processing_time'] > 0
@@ -89,9 +90,10 @@ class TestMultiAgentIntegration:
         for query, response in zip(queries, responses):
             assert response['query'] == query
             assert len(response['answer']) > 0
-            assert response['department'] in ['hr', 'tech', 'finance', 'general', 'error']
+            assert response['department'] in [
+                'hr', 'tech', 'finance', 'general', 'error']
 
-    async test_department_classification(self, multi_agent_system):
+    async def test_department_classification(self, multi_agent_system):
         """Test that queries are correctly classified by department."""
         test_cases = [
             ("How do I request vacation time?", "hr"),
@@ -105,7 +107,8 @@ class TestMultiAgentIntegration:
             response = await multi_agent_system.process_query(query, evaluate_quality=False)
 
             # Allow some flexibility in classification
-            assert response['department'] in ['hr', 'tech', 'finance', 'general']
+            assert response['department'] in [
+                'hr', 'tech', 'finance', 'general']
             # The exact classification might vary, so we just check it's a valid department
 
     async def test_error_handling(self, multi_agent_system):
@@ -256,7 +259,8 @@ if __name__ == "__main__":
             response = await system.process_query(query, evaluate_quality=True)
             print(f"Department: {response['department']}")
             print(f"Answer: {response['answer'][:200]}...")
-            print(f"Quality Score: {response['quality_evaluation']['overall_score']}/10")
+            print(
+                f"Quality Score: {response['quality_evaluation']['overall_score']}/10")
 
         await system.shutdown()
 

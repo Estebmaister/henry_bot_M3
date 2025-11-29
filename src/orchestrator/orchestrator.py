@@ -11,6 +11,7 @@ from .intent_classifier import IntentClassifier
 from ..agents import RAGAgent
 from ..config import settings
 from ..utils import langfuse_client
+from ..agents import AgentResponse
 
 
 @dataclass
@@ -111,30 +112,155 @@ class MultiAgentOrchestrator:
             OrchestratorResponse with complete results
         """
         if not self._initialized:
-            raise RuntimeError("Orchestrator not initialized. Call initialize() first.")
+            raise RuntimeError(
+                "Orchestrator not initialized. Call initialize() first.")
 
         # Create trace for observability
         trace = langfuse_client.create_trace(
             name="multi_agent_query_processing",
             input=query,
             user_id=user_id,
-            metadata={"query_length": len(query)}
+            metadata={
+                "query_length": len(query),
+                "service_name": "henry_bot_M3",
+                "source": "terminal_cli"
+            }
         )
 
         start_time = time.time()
 
         try:
-            # Step 1: Classify intent
-            classification_start = time.time()
-            predicted_department, classification_confidence, all_scores = await self.intent_classifier.classify(query, trace)
-            classification_time = time.time() - classification_start
+            # Create comprehensive workflow span
+            with trace.span(
+                name="orchestrator_workflow",
+                input=query,
+                metadata={
+                    'stage': 'complete_orchestration',
+                    'service_name': 'henry_bot_M3',
+                    'user_id': user_id or 'terminal'
+                }
+            ) as workflow_span:
 
-            # Step 2: Route to appropriate agent
-            if predicted_department not in self.agents:
-                # Fallback handling for unknown departments
-                response = await self._handle_fallback(query, predicted_department, trace)
-            else:
-                response = await self._route_to_agent(query, predicted_department, trace)
+                # Step 1: Intent Classification with span
+                with trace.span(
+                    name="intent_classification",
+                    input=query,
+                    metadata={
+                        'stage': 'classification',
+                        'available_departments': list(self.agents.keys())
+                    }
+                ) as classification_span:
+
+                    classification_start = time.time()
+                    predicted_department, classification_confidence, all_scores = await self.intent_classifier.classify(query, trace)
+                    classification_time = time.time() - classification_start
+
+                    # Update classification span with results
+                    classification_span.update(
+                        output=predicted_department,
+                        metadata={
+                            'predicted_department': predicted_department,
+                            'confidence': classification_confidence,
+                            'classification_time_seconds': classification_time,
+                            'all_scores': all_scores,
+                            'threshold_met': classification_confidence > settings.confidence_threshold
+                        }
+                    )
+
+                    # Also log as event for additional visibility
+                    langfuse_client.log_classification_result(
+                        trace=trace,
+                        query=query,
+                        predicted_class=predicted_department,
+                        confidence=classification_confidence,
+                        all_scores=all_scores
+                    )
+
+                # Step 2: Agent Processing with span
+                with trace.span(
+                    name="agent_processing",
+                    input=f"Query: {query[:100]}... -> Department: {predicted_department}",
+                    metadata={
+                        'stage': 'agent_execution',
+                        'target_department': predicted_department,
+                        'agent_available': predicted_department in self.agents
+                    }
+                ) as agent_span:
+
+                    agent_start = time.time()
+                    if predicted_department not in self.agents:
+                        # Fallback handling for unknown departments
+                        with trace.span(
+                            name="fallback_handling",
+                            metadata={
+                                'stage': 'fallback',
+                                'reason': 'department_not_available',
+                                'requested_department': predicted_department
+                            }
+                        ) as fallback_span:
+
+                            response = await self._handle_fallback(query, predicted_department, trace)
+                            agent_execution_time = time.time() - agent_start
+
+                            fallback_span.update(
+                                output=response.answer,
+                                metadata={
+                                    'fallback_used': True,
+                                    'fallback_reason': 'department_not_available'
+                                }
+                            )
+                    else:
+                        # Normal agent processing
+                        with trace.span(
+                            name="rag_agent_execution",
+                            metadata={
+                                'stage': 'rag_processing',
+                                'agent_name': f"{predicted_department}_assistant",
+                                'agent_type': 'rag'
+                            }
+                        ) as rag_span:
+
+                            response = await self._route_to_agent(query, predicted_department, trace)
+                            agent_execution_time = time.time() - agent_start
+
+                            rag_span.update(
+                                output=response.answer[:200] + "..." if len(
+                                    response.answer) > 200 else response.answer,
+                                metadata={
+                                    'department': predicted_department,
+                                    'num_source_documents': len(response.source_documents),
+                                    'agent_confidence': response.confidence,
+                                    'agent_execution_time_seconds': agent_execution_time
+                                }
+                            )
+
+                    # Update agent processing span
+                    agent_span.update(
+                        output=response.answer[:500] + "..." if len(
+                            response.answer) > 500 else response.answer,
+                        metadata={
+                            'agent_execution_time_seconds': agent_execution_time,
+                            'agent_used': response.metadata.get('agent_name', 'unknown'),
+                            'fallback_used': predicted_department not in self.agents
+                        }
+                    )
+
+                    # Also log as event for metrics tracking
+                    langfuse_client.log_agent_execution(
+                        trace=trace,
+                        agent_name=response.metadata.get(
+                            'agent_name', predicted_department),
+                        agent_type="rag_agent",
+                        input_data=query,
+                        output_data=response.answer,
+                        execution_time=agent_execution_time,
+                        metadata={
+                            'department': predicted_department,
+                            'num_source_documents': len(response.source_documents),
+                            'agent_confidence': response.confidence,
+                            'documents_retrieved': len(response.source_documents)
+                        }
+                    )
 
             # Calculate total processing time
             total_time = time.time() - start_time
@@ -151,13 +277,14 @@ class MultiAgentOrchestrator:
                 metadata={
                     **response.metadata,
                     'classification_time': classification_time,
+                    'agent_execution_time': agent_execution_time,
                     'all_classification_scores': all_scores,
                     'predicted_department': predicted_department,
                     'fallback_used': predicted_department not in self.agents
                 }
             )
 
-            # Update trace with final output
+            # Update trace with final output and comprehensive metadata
             if trace:
                 trace.update(
                     output=orchestrator_response.answer,
@@ -165,7 +292,12 @@ class MultiAgentOrchestrator:
                         'department': orchestrator_response.department,
                         'confidence': orchestrator_response.confidence,
                         'processing_time': orchestrator_response.processing_time,
-                        'agent_used': orchestrator_response.agent_used
+                        'agent_used': orchestrator_response.agent_used,
+                        'classification_confidence': classification_confidence,
+                        'num_source_documents': len(orchestrator_response.source_documents),
+                        'fallback_used': orchestrator_response.metadata.get('fallback_used', False),
+                        'classification_time': classification_time,
+                        'agent_execution_time': agent_execution_time
                     }
                 )
 
@@ -200,9 +332,8 @@ class MultiAgentOrchestrator:
             )
 
         finally:
-            # Ensure trace is flushed
-            if trace:
-                langfuse_client.flush()
+            # Note: Trace flushing is handled by the main system to ensure complete operation timing
+            pass
 
     async def _route_to_agent(self, query: str, department: str, trace) -> any:
         """
@@ -257,7 +388,6 @@ class MultiAgentOrchestrator:
             )
 
         # Create fallback response object similar to AgentResponse
-        from ..agents import AgentResponse
         return AgentResponse(
             answer=fallback_answer,
             confidence=0.3,

@@ -5,8 +5,6 @@ Replaces OpenAI client calls with predefined responses.
 
 import time
 import random
-from typing import Dict, Any, Optional
-import json
 
 
 class MockOpenAI:

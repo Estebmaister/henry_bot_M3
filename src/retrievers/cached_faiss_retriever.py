@@ -2,9 +2,7 @@
 Enhanced FAISS-based retriever with persistent caching for embeddings and indices.
 """
 
-import os
 import asyncio
-import hashlib
 import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -16,7 +14,7 @@ import numpy as np
 
 from .base import BaseRetriever, RetrievedDocument
 from src.config import settings
-from src.utils import langfuse_client
+import shutil
 
 
 class CachedFAISSRetriever(BaseRetriever):
@@ -80,8 +78,10 @@ class CachedFAISSRetriever(BaseRetriever):
             # Check if cached data is available and valid
             if await self._try_load_cache():
                 end_time = asyncio.get_event_loop().time()
-                print(f"FAISS retriever loaded from cache in {end_time - start_time:.2f} seconds")
-                print(f"Indexed {len(self._documents)} documents with dimension {self._embeddings.shape[1] if hasattr(self._embeddings, 'shape') else 'unknown'}")
+                print(
+                    f"FAISS retriever loaded from cache in {end_time - start_time:.2f} seconds")
+                print(
+                    f"Indexed {len(self._documents)} documents with dimension {self._embeddings.shape[1] if hasattr(self._embeddings, 'shape') else 'unknown'}")
                 return
 
             # Initialize embedding model and generate new embeddings
@@ -95,8 +95,10 @@ class CachedFAISSRetriever(BaseRetriever):
             await self._save_cache()
 
             end_time = asyncio.get_event_loop().time()
-            print(f"FAISS retriever initialized in {end_time - start_time:.2f} seconds")
-            print(f"Indexed {len(self._documents)} documents with dimension {self._embeddings.shape[1]}")
+            print(
+                f"FAISS retriever initialized in {end_time - start_time:.2f} seconds")
+            print(
+                f"Indexed {len(self._documents)} documents with dimension {self._embeddings.shape[1]}")
 
         except Exception as e:
             print(f"Error initializing FAISS retriever: {e}")
@@ -135,7 +137,8 @@ class CachedFAISSRetriever(BaseRetriever):
                 if idx >= 0 and idx < len(self._documents):
                     # Handle both string and dict document formats
                     if isinstance(self._documents[idx], dict):
-                        content = self._documents[idx].get('content', str(self._documents[idx]))
+                        content = self._documents[idx].get(
+                            'content', str(self._documents[idx]))
                     else:
                         content = str(self._documents[idx])
 
@@ -162,7 +165,8 @@ class CachedFAISSRetriever(BaseRetriever):
             metadata: List of metadata dictionaries for each document
         """
         if not self._embeddings:
-            raise RuntimeError("Retriever not initialized. Call initialize() first.")
+            raise RuntimeError(
+                "Retriever not initialized. Call initialize() first.")
 
         try:
             # Generate embeddings for new documents
@@ -185,7 +189,8 @@ class CachedFAISSRetriever(BaseRetriever):
             # Save updated cache
             await self._save_cache()
 
-            print(f"Added {len(documents)} new documents to retriever and updated cache")
+            print(
+                f"Added {len(documents)} new documents to retriever and updated cache")
 
         except Exception as e:
             print(f"Error adding documents: {e}")
@@ -316,7 +321,8 @@ class CachedFAISSRetriever(BaseRetriever):
     async def _create_faiss_index(self) -> None:
         """Create FAISS index from embeddings."""
         dimension = self._embeddings.shape[1]
-        self._index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
+        # Inner product for cosine similarity
+        self._index = faiss.IndexFlatIP(dimension)
 
         # Normalize embeddings for cosine similarity
         faiss.normalize_L2(self._embeddings)
@@ -349,7 +355,8 @@ class CachedFAISSRetriever(BaseRetriever):
             with open(self._fingerprint_path, 'w', encoding='utf-8') as f:
                 json.dump(fingerprint, f, indent=2)
 
-            print(f"Cache saved to {self._cache_dir / self._department_cache_name}")
+            print(
+                f"Cache saved to {self._cache_dir / self._department_cache_name}")
 
         except Exception as e:
             print(f"Error saving cache: {e}")
@@ -387,7 +394,8 @@ class CachedFAISSRetriever(BaseRetriever):
                         documents.append(content)
                         metadata.append({
                             'source': relative_path,
-                            'full_path': str(file_path),  # Store full path for fingerprinting
+                            # Store full path for fingerprinting
+                            'full_path': str(file_path),
                             'file_name': file_path.name,
                             'file_size': len(content),
                             'file_type': file_path.suffix.lower(),
@@ -408,7 +416,6 @@ class CachedFAISSRetriever(BaseRetriever):
             if self._department_cache_name:
                 dept_cache_dir = self._cache_dir / self._department_cache_name
                 if dept_cache_dir.exists():
-                    import shutil
                     shutil.rmtree(dept_cache_dir)
                     print(f"Cleared cache for {self._department_cache_name}")
         except Exception as e:
@@ -420,7 +427,6 @@ class CachedFAISSRetriever(BaseRetriever):
         try:
             cache_dir = Path(settings.cache_dir)
             if cache_dir.exists():
-                import shutil
                 shutil.rmtree(cache_dir)
                 print("Cleared all caches")
         except Exception as e:
