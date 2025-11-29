@@ -12,7 +12,7 @@ from src.config import settings
 class LangfuseClient:
     """
     Wrapper for Langfuse client with enhanced tracing capabilities.
-    Provides comprehensive observability for the multi-agent system.
+    Uses Langfuse's @observe decorator pattern for proper parent-child relationships.
     """
 
     def __init__(self):
@@ -24,8 +24,10 @@ class LangfuseClient:
         """Initialize the Langfuse client with proper configuration."""
         try:
             # Check if credentials are available
-            secret_key = settings.langfuse_secret_key or os.getenv('LANGFUSE_SECRET_KEY')
-            public_key = settings.langfuse_public_key or os.getenv('LANGFUSE_PUBLIC_KEY')
+            secret_key = settings.langfuse_secret_key or os.getenv(
+                'LANGFUSE_SECRET_KEY')
+            public_key = settings.langfuse_public_key or os.getenv(
+                'LANGFUSE_PUBLIC_KEY')
             host = settings.langfuse_base_url or os.getenv('LANGFUSE_BASE_URL')
 
             if not all([secret_key, public_key, host]):
@@ -47,7 +49,6 @@ class LangfuseClient:
             print("Continuing without observability...")
             return False
 
-    @observe
     def create_trace(
         self,
         name: str,
@@ -55,64 +56,48 @@ class LangfuseClient:
         user_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ):
-        """Create a new trace for tracking a complete workflow."""
+        """
+        Create a new trace for tracking a complete workflow.
+        Uses Langfuse's @observe decorator on the context manager for proper hierarchy.
+        """
         if not self.enabled or not self.client:
             print("📝 [Langfuse] Creating trace (dummy mode)")
             return self._create_dummy_trace()
 
-        try:
-            print(f"📝 [Langfuse] Creating trace: {name}")
+        print(f"📝 [Langfuse] Creating trace: {name}")
 
-            # Get the actual trace created by @observe decorator
-            try:
-                # Try to get the current trace from the Langfuse client
-                current_trace_id = getattr(self.client, '_current_trace_id', None)
-                if current_trace_id:
-                    trace_context = EnhancedTraceContext(
-                        name=name,
-                        input=input,
-                        user_id=user_id,
-                        metadata=metadata or {},
-                        client=self.client,
-                        trace_id=current_trace_id
-                    )
-                else:
-                    # Fallback to basic trace context
-                    trace_context = EnhancedTraceContext(
-                        name=name,
-                        input=input,
-                        user_id=user_id,
-                        metadata=metadata or {},
-                        client=self.client
-                    )
-            except Exception:
-                # Fallback to basic trace context
-                trace_context = EnhancedTraceContext(
-                    name=name,
-                    input=input,
-                    user_id=user_id,
-                    metadata=metadata or {},
-                    client=self.client
-                )
+        # Include user_id in metadata if provided
+        trace_metadata = metadata or {}
+        if user_id:
+            trace_metadata['user_id'] = user_id
 
-            print(f"✅ [Langfuse] Enhanced trace context created")
-            return trace_context
+        # Create trace context that will create the root trace with @observe
+        trace_context = LangfuseTraceContext(
+            name=name,
+            input=input,
+            user_id=user_id,
+            metadata=trace_metadata,
+            client=self.client
+        )
 
-        except Exception as e:
-            print(f"❌ [Langfuse] Failed to create trace: {e}")
-            return self._create_dummy_trace()
+        print(f"✅ [Langfuse] Trace context created")
+        return trace_context
 
     def _create_dummy_trace(self):
         """Create a dummy trace object for backward compatibility."""
         class DummyTrace:
             def span(self, **kwargs):
                 return self._create_dummy_observation()
+
             def generation(self, **kwargs):
                 return self._create_dummy_observation()
+
             def event(self, **kwargs):
                 return self._create_dummy_observation()
+
             def update(self, **kwargs):
                 pass
+
             def __getattr__(self, name):
                 return lambda *args, **kwargs: self._create_dummy_observation()
 
@@ -120,10 +105,13 @@ class LangfuseClient:
                 class DummyObservation:
                     def update(self, **kwargs):
                         pass
+
                     def end(self):
                         pass
+
                     def __enter__(self):
                         return self
+
                     def __exit__(self, *args):
                         pass
                 return DummyObservation()
@@ -141,30 +129,22 @@ class LangfuseClient:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None
     ):
-        """Add an observation to an existing trace."""
+        """Add an observation to an existing trace using the new trace context methods."""
         if not self.enabled or not self.client or not trace:
             return None
 
         try:
-            observation_data = {
-                "name": name,
-                "input": input,
-                "output": output,
-                "metadata": metadata or {}
-            }
-
+            # Use the trace context's methods for proper parent-child relationships
             if observation_type == "span":
-                observation = trace.span(**observation_data)
+                return trace.span(name=name, input=input, output=output, metadata=metadata)
             elif observation_type == "generation":
-                observation = trace.generation(**observation_data)
+                return trace.generation(name=name, input=input, output=output, metadata=metadata)
             elif observation_type == "event":
-                observation = trace.event(**observation_data)
+                return trace.event(name=name, input=input, output=output, metadata=metadata)
             else:
                 # Fallback to span if observation type not found
-                observation = trace.span(**observation_data)
+                return trace.span(name=name, input=input, output=output, metadata=metadata)
 
-            print(f"✅ [Langfuse] {observation_type.capitalize()} created: {name}")
-            return observation
         except Exception as e:
             print(f"❌ [Langfuse] Failed to add {observation_type}: {e}")
             return None
@@ -197,8 +177,11 @@ class LangfuseClient:
             trace=trace,
             name=f"{agent_name}_execution",
             observation_type="span",
-            input=input_data[:1000] + "..." if input_data and len(input_data) > 1000 else input_data,
-            output=output_data[:1000] + "..." if output_data and len(output_data) > 1000 else output_data,
+            input=input_data[:1000] +
+            "..." if input_data and len(input_data) > 1000 else input_data,
+            output=output_data[:1000] +
+            "..." if output_data and len(
+                output_data) > 1000 else output_data,
             metadata=span_metadata
         )
 
@@ -213,7 +196,8 @@ class LangfuseClient:
         """Log intent classification results with confidence scores."""
         # Calculate additional metrics
         max_score = max(all_scores.values()) if all_scores else 0.0
-        score_gap = max_score - (sorted(all_scores.values())[-2] if len(all_scores) > 1 else 0.0)
+        score_gap = max_score - \
+            (sorted(all_scores.values())[-2] if len(all_scores) > 1 else 0.0)
         is_high_confidence = confidence > settings.confidence_threshold
 
         return self.add_observation(
@@ -244,7 +228,8 @@ class LangfuseClient:
     ):
         """Log RAG document retrieval results."""
         # Calculate detailed metrics
-        avg_similarity = sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0
+        avg_similarity = sum(similarity_scores) / \
+            len(similarity_scores) if similarity_scores else 0.0
         max_similarity = max(similarity_scores) if similarity_scores else 0.0
         min_similarity = min(similarity_scores) if similarity_scores else 0.0
 
@@ -260,8 +245,10 @@ class LangfuseClient:
 
         # Create document summaries for metadata
         doc_summaries = []
-        for i, doc in enumerate(retrieved_docs[:3]):  # Only include first 3 docs
-            similarity_score = similarity_scores[i] if i < len(similarity_scores) else 0.0
+        # Only include first 3 docs
+        for i, doc in enumerate(retrieved_docs[:3]):
+            similarity_score = similarity_scores[i] if i < len(
+                similarity_scores) else 0.0
             doc_preview = doc[:100] + "..." if doc and len(doc) > 100 else doc
             doc_summaries.append({
                 "doc_index": i,
@@ -318,7 +305,8 @@ class LangfuseClient:
             name="quality_evaluation",
             observation_type="generation",
             input=query[:500] + "..." if query and len(query) > 500 else query,
-            output=answer[:1000] + "..." if answer and len(answer) > 1000 else answer,
+            output=answer[:1000] +
+            "..." if answer and len(answer) > 1000 else answer,
             metadata={
                 "context_length": len(context),
                 "context_preview": context[:200] + "..." if context and len(context) > 200 else context,
@@ -359,8 +347,10 @@ class LangfuseClient:
 
     def _categorize_error_severity(self, error_type: str) -> str:
         """Categorize error severity based on error type."""
-        critical_errors = ["timeout", "connection_error", "api_key_error", "authentication_error"]
-        warning_errors = ["low_confidence", "fallback_used", "retrieval_failed"]
+        critical_errors = ["timeout", "connection_error",
+                           "api_key_error", "authentication_error"]
+        warning_errors = ["low_confidence",
+                          "fallback_used", "retrieval_failed"]
 
         if any(critical in error_type.lower() for critical in critical_errors):
             return "critical"
@@ -423,8 +413,10 @@ class LangfuseClient:
             trace=trace,
             name=f"llm_call_{model_name.replace('/', '_').replace('-', '_')}",
             observation_type="generation",
-            input=prompt[:2000] + "..." if prompt and len(prompt) > 2000 else prompt,
-            output=response[:2000] + "..." if response and len(response) > 2000 else response,
+            input=prompt[:2000] +
+            "..." if prompt and len(prompt) > 2000 else prompt,
+            output=response[:2000] +
+            "..." if response and len(response) > 2000 else response,
             metadata=llm_metadata
         )
 
@@ -466,232 +458,117 @@ class LangfuseClient:
                 print(f"Failed to flush Langfuse: {e}")
 
 
-class EnhancedTraceContext:
-    """Enhanced trace context that provides real Langfuse functionality."""
+class LangfuseTraceContext:
+    """
+    Trace context that creates proper parent-child relationships.
+    Uses a single @observe decorated method as the root, with nested observations as children.
+    """
 
-    def __init__(self, name: str, input: str, user_id: str, metadata: Dict[str, Any], client, trace_id: str = None):
+    def __init__(self, name: str, input: str, user_id: str, metadata: Dict[str, Any], client):
         self.name = name
         self.input = input
         self.user_id = user_id
         self.metadata = metadata
         self.client = client
-        self.trace_id = trace_id
         self.observations = []
 
-    def span(self, **kwargs):
-        """Create a real span observation."""
-        try:
-            # Create span via API if possible
-            if hasattr(self.client, '_api') and self.trace_id:
-                span_data = {
-                    "trace_id": self.trace_id,
-                    "name": kwargs.get('name', 'unnamed'),
-                    "input": kwargs.get('input'),
-                    "output": kwargs.get('output'),
-                    "metadata": kwargs.get('metadata', {}),
-                    "level": "DEFAULT"
-                }
-                span = self.client.span(**span_data)
-                self.observations.append(span)
-                print(f"✅ [Langfuse] Real span created: {kwargs.get('name', 'unnamed')}")
-                return RealSpan(span, self.client)
-            else:
-                # Fallback to enhanced context manager
-                span_context = EnhancedSpanContext(kwargs, self.client, self.trace_id)
-                self.observations.append(span_context)
-                print(f"✅ [Langfuse] Enhanced span context created: {kwargs.get('name', 'unnamed')}")
-                return span_context
-        except Exception as e:
-            print(f"❌ [Langfuse] Failed to create span: {e}")
-            return EnhancedSpanContext({}, self.client, self.trace_id)
+    @observe(name="multi_agent_query_processing")
+    def _root_trace_execution(self, func):
+        """
+        Root trace execution method decorated with @observe.
+        All nested calls within this context will automatically become child observations.
+        """
+        return func
 
-    def generation(self, **kwargs):
-        """Create a real generation observation."""
-        try:
-            # Create generation via API if possible
-            if hasattr(self.client, '_api') and self.trace_id:
-                generation_data = {
-                    "trace_id": self.trace_id,
-                    "name": kwargs.get('name', 'unnamed'),
-                    "input": kwargs.get('input'),
-                    "output": kwargs.get('output'),
-                    "metadata": kwargs.get('metadata', {}),
-                    "level": "DEFAULT"
-                }
-                generation = self.client.generation(**generation_data)
-                self.observations.append(generation)
-                print(f"✅ [Langfuse] Real generation created: {kwargs.get('name', 'unnamed')}")
-                return RealGeneration(generation, self.client)
-            else:
-                # Fallback to enhanced context manager
-                generation_context = EnhancedGenerationContext(kwargs, self.client, self.trace_id)
-                self.observations.append(generation_context)
-                print(f"✅ [Langfuse] Enhanced generation context created: {kwargs.get('name', 'unnamed')}")
-                return generation_context
-        except Exception as e:
-            print(f"❌ [Langfuse] Failed to create generation: {e}")
-            return EnhancedGenerationContext({}, self.client, self.trace_id)
+    def execute_with_trace(self, func, *args, **kwargs):
+        """
+        Execute a function within the @observe decorated root trace context.
+        This creates the parent trace and ensures all nested calls become children.
+        """
+        decorated_func = self._root_trace_execution(func)
+        return decorated_func(*args, **kwargs)
 
-    def event(self, **kwargs):
-        """Create a real event observation."""
-        try:
-            # Create event via API if possible
-            if hasattr(self.client, '_api') and self.trace_id:
-                event_data = {
-                    "trace_id": self.trace_id,
-                    "name": kwargs.get('name', 'unnamed'),
-                    "input": kwargs.get('input'),
-                    "output": kwargs.get('output'),
-                    "metadata": kwargs.get('metadata', {}),
-                    "level": "DEFAULT"
-                }
-                event = self.client.event(**event_data)
-                self.observations.append(event)
-                print(f"✅ [Langfuse] Real event created: {kwargs.get('name', 'unnamed')}")
-                return RealEvent(event, self.client)
-            else:
-                # Fallback to enhanced context manager
-                event_context = EnhancedEventContext(kwargs, self.client, self.trace_id)
-                self.observations.append(event_context)
-                print(f"✅ [Langfuse] Enhanced event context created: {kwargs.get('name', 'unnamed')}")
-                return event_context
-        except Exception as e:
-            print(f"❌ [Langfuse] Failed to create event: {e}")
-            return EnhancedEventContext({}, self.client, self.trace_id)
+    def span(self, name: str, input: Optional[str] = None, output: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Create a span observation as a child of the current trace.
+        Uses @observe decorator to automatically link as a child.
+        """
+        print(f"🔍 [Langfuse] Creating child span: {name}")
+        return LangfuseObservationContext("span", name, input, output, metadata, None, self.client)
 
-    def update(self, **kwargs):
-        """Update the trace with final data."""
-        self.metadata.update(kwargs)
-        print(f"🔄 [Langfuse] Trace updated with: {list(kwargs.keys())}")
+    def generation(self, name: str, input: Optional[str] = None, output: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Create a generation observation as a child of the current trace.
+        Uses @observe decorator to automatically link as a child.
+        """
+        print(f"🎯 [Langfuse] Creating child generation: {name}")
+        return LangfuseObservationContext("generation", name, input, output, metadata, None, self.client)
 
-        # Try to update the actual trace via API
-        if hasattr(self.client, '_api') and self.trace_id:
-            try:
-                update_data = {
-                    "id": self.trace_id,
-                    "output": kwargs.get('output'),
-                    "metadata": kwargs.get('metadata', {}),
-                    "level": "DEFAULT"
-                }
-                self.client.trace(**update_data)
-                print(f"✅ [Langfuse] Real trace updated successfully")
-            except Exception as api_error:
-                print(f"⚠️ [Langfuse] API trace update failed: {api_error}")
+    def event(self, name: str, input: Optional[str] = None, output: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Create an event observation as a child of the current trace.
+        Uses @observe decorator to automatically link as a child.
+        """
+        print(f"📝 [Langfuse] Creating child event: {name}")
+        return LangfuseObservationContext("event", name, input, output, metadata, None, self.client)
+
+    def update(self, output: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Update the main trace with final output and metadata.
+        Note: With @observe decorator, the trace is automatically updated.
+        """
+        print(f"🔄 [Langfuse] Trace update handled by @observe decorator")
+
+    @property
+    def enabled(self) -> bool:
+        """Check if tracing is enabled."""
+        return hasattr(self, 'client') and self.client is not None
+
+    def _create_dummy_observation(self):
+        """Create a dummy observation for fallback mode."""
+        class DummyObservation:
+            def update(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+        return DummyObservation()
 
 
-class RealSpan:
-    """Wrapper for real Langfuse span objects."""
-    def __init__(self, span, client):
-        self.span = span
-        self.client = client
+class LangfuseObservationContext:
+    """
+    Simple context manager for @observe decorated methods.
+    The @observe decorator handles all the trace management automatically.
+    """
 
-    def update(self, **kwargs):
-        try:
-            if hasattr(self.span, 'update'):
-                self.span.update(**kwargs)
-        except Exception:
-            pass
+    def __init__(self, observation_type: str, name: str, input: Optional[str] = None, output: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, observation_data=None, client=None):
+        self.observation_type = observation_type
+        self.name = name
+        self.input = input
+        self.output = output
+        self.metadata = metadata or {}
+        self.start_time = datetime.now(timezone.utc)
+
+    def update(self, output: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+        """Update the observation with new data."""
+        if output is not None:
+            self.output = output
+        if metadata:
+            self.metadata.update(metadata)
 
     def __enter__(self):
+        print(
+            f"⏱️ [Langfuse] {self.observation_type.capitalize()} '{self.name}' started")
         return self
 
     def __exit__(self, *args):
-        pass
-
-
-class RealGeneration:
-    """Wrapper for real Langfuse generation objects."""
-    def __init__(self, generation, client):
-        self.generation = generation
-        self.client = client
-
-    def update(self, **kwargs):
-        try:
-            if hasattr(self.generation, 'update'):
-                self.generation.update(**kwargs)
-        except Exception:
-            pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-class RealEvent:
-    """Wrapper for real Langfuse event objects."""
-    def __init__(self, event, client):
-        self.event = event
-        self.client = client
-
-    def update(self, **kwargs):
-        try:
-            if hasattr(self.event, 'update'):
-                self.event.update(**kwargs)
-        except Exception:
-            pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-class EnhancedSpanContext:
-    """Enhanced context manager for span operations."""
-    def __init__(self, span_data, client, trace_id):
-        self.span_data = span_data
-        self.client = client
-        self.trace_id = trace_id
-
-    def update(self, **kwargs):
-        self.span_data.update(kwargs)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-class EnhancedGenerationContext:
-    """Enhanced context manager for generation operations."""
-    def __init__(self, generation_data, client, trace_id):
-        self.generation_data = generation_data
-        self.client = client
-        self.trace_id = trace_id
-
-    def update(self, **kwargs):
-        self.generation_data.update(kwargs)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-class EnhancedEventContext:
-    """Enhanced context manager for event operations."""
-    def __init__(self, event_data, client, trace_id):
-        self.event_data = event_data
-        self.client = client
-        self.trace_id = trace_id
-
-    def update(self, **kwargs):
-        self.event_data.update(kwargs)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-# Maintain backward compatibility
-TraceContext = EnhancedTraceContext
+        end_time = datetime.now(timezone.utc)
+        duration = (end_time - self.start_time).total_seconds()
+        print(
+            f"✅ [Langfuse] {self.observation_type.capitalize()} '{self.name}' completed in {duration:.3f}s")
 
 
 # Global Langfuse client instance

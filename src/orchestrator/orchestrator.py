@@ -12,6 +12,7 @@ from ..agents import RAGAgent
 from ..config import settings
 from ..utils import langfuse_client
 from ..agents import AgentResponse
+from langfuse import observe
 
 
 @dataclass
@@ -100,9 +101,11 @@ class MultiAgentOrchestrator:
             print(f"Error initializing orchestrator: {e}")
             raise
 
+    @observe(name="multi_agent_query_processing")
     async def process_query(self, query: str, user_id: Optional[str] = None) -> OrchestratorResponse:
         """
         Process a query through the complete multi-agent pipeline.
+        @observe decorator automatically creates a trace and links all nested calls.
 
         Args:
             query: The input query to process
@@ -115,17 +118,20 @@ class MultiAgentOrchestrator:
             raise RuntimeError(
                 "Orchestrator not initialized. Call initialize() first.")
 
-        # Create trace for observability
-        trace = langfuse_client.create_trace(
-            name="multi_agent_query_processing",
-            input=query,
-            user_id=user_id,
-            metadata={
-                "query_length": len(query),
-                "service_name": "henry_bot_M3",
-                "source": "terminal_cli"
-            }
-        )
+        # The @observe decorator above automatically creates the trace
+        # Add metadata to the current trace context
+        if hasattr(langfuse_client.client, 'update_current_trace'):
+            langfuse_client.client.update_current_trace(
+                metadata={
+                    "query_length": len(query),
+                    "service_name": "henry_bot_M3",
+                    "source": "terminal_cli",
+                    "user_id": user_id
+                }
+            )
+
+        # Use dummy trace context for backward compatibility with existing code
+        trace = langfuse_client._create_dummy_trace()
 
         start_time = time.time()
 

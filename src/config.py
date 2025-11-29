@@ -11,58 +11,57 @@ class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
     # LLM Configuration
-    openrouter_api_key: str = Field(..., env="OPENROUTER_API_KEY")
-    openrouter_base_url: Optional[str] = Field(None, env="OPENROUTER_BASE_URL")
-    model_name: str = Field(
-        "google/gemini-2.0-flash-exp:free", env="MODEL_NAME")
+    openrouter_api_key: str
+    openrouter_base_url: Optional[str] = None
+    model_name: str = "google/gemini-2.0-flash-exp:free"
 
     # Langfuse Configuration
-    langfuse_secret_key: Optional[str] = Field(None, env="LANGFUSE_SECRET_KEY")
-    langfuse_public_key: Optional[str] = Field(None, env="LANGFUSE_PUBLIC_KEY")
+    langfuse_secret_key: Optional[str] = Field(None)
+    langfuse_public_key: Optional[str] = Field(None)
     langfuse_base_url: str = Field(
-        "https://cloud.langfuse.com", env="LANGFUSE_BASE_URL")
+        "https://cloud.langfuse.com")
 
     # RAG Configuration
-    embedding_model: str = Field("all-MiniLM-L6-v2", env="EMBEDDING_MODEL")
-    similarity_top_k: int = Field(3, env="SIMILARITY_TOP_K")
-    chunk_size: int = Field(1000, env="CHUNK_SIZE")
-    chunk_overlap: int = Field(200, env="CHUNK_OVERLAP")
+    embedding_model: str = Field("all-MiniLM-L6-v2")
+    similarity_top_k: int = Field(3)
+    chunk_size: int = Field(1000)
+    chunk_overlap: int = Field(200)
 
     # Document Paths
-    data_dir: str = Field("./data", env="DATA_DIR")
-    hr_docs_dir: str = Field("./data/hr_docs", env="HR_DOCS_DIR")
-    tech_docs_dir: str = Field("./data/tech_docs", env="TECH_DOCS_DIR")
+    data_dir: str = Field("./data")
+    hr_docs_dir: str = Field("./data/hr_docs")
+    tech_docs_dir: str = Field("./data/tech_docs")
     finance_docs_dir: str = Field(
-        "./data/finance_docs", env="FINANCE_DOCS_DIR")
+        "./data/finance_docs")
 
     # Application Configuration
-    debug: bool = Field(False, env="DEBUG")
-    log_level: str = Field("INFO", env="LOG_LEVEL")
+    debug: bool = Field(False)
+    log_level: str = Field("INFO")
 
     # Agent Configuration
     department_classes: List[str] = ["hr", "tech", "finance"]
-    confidence_threshold: float = Field(0.7, env="CONFIDENCE_THRESHOLD")
+    confidence_threshold: float = Field(0.7)
 
     # Evaluator Configuration
-    evaluator_model: str = Field("gpt-3.5-turbo", env="EVALUATOR_MODEL")
+    evaluator_model: str = Field("gpt-3.5-turbo")
     quality_dimensions: List[str] = ["relevance", "completeness", "accuracy"]
 
     # Mock Mode Configuration
-    mock_mode: bool = Field(False, env="MOCK_MODE")
+    mock_mode: bool = Field(False)
 
     # Cache Configuration
-    cache_dir: str = Field("./cache", env="CACHE_DIR")
-    embeddings_cache_file: str = Field("embeddings.npy", env="EMBEDDINGS_CACHE_FILE")
-    faiss_index_file: str = Field("faiss.index", env="FAISS_INDEX_FILE")
-    metadata_cache_file: str = Field("metadata.json", env="METADATA_CACHE_FILE")
+    cache_dir: str = Field("./cache")
+    embeddings_cache_file: str = Field("embeddings.npy")
+    faiss_index_file: str = Field("faiss.index")
+    metadata_cache_file: str = Field("metadata.json")
 
     # Persistent FAISS Storage Configuration
-    store_dir: str = Field("./store", env="STORE_DIR")
-    faiss_indices_dir: str = Field("./store/faiss_indices", env="FAISS_INDICES_DIR")
-    embeddings_dir: str = Field("./store/embeddings", env="EMBEDDINGS_DIR")
-    metadata_dir: str = Field("./store/metadata", env="METADATA_DIR")
-    use_persistent_storage: bool = Field(True, env="USE_PERSISTENT_STORAGE")
-    force_rebuild_indices: bool = Field(False, env="FORCE_REBUILD_INDICES")
+    store_dir: str = Field("./store")
+    faiss_indices_dir: str = Field("./store/faiss_indices")
+    embeddings_dir: str = Field("./store/embeddings")
+    metadata_dir: str = Field("./store/metadata")
+    use_persistent_storage: bool = Field(True)
+    force_rebuild_indices: bool = Field(False)
 
     model_config = {
         "env_file": ".env",

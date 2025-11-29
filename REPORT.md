@@ -154,9 +154,10 @@ store/                         # Persistent FAISS indices storage
 └── metadata/                 # Document metadata
 
 tests/                          # Test suite
-└── test_integration.py        # Integration tests
-
-test_queries.json              # Test queries in proper JSON format
+├── test_cli_tracing.py         # Comprehensive CLI tracing tests
+├── test_langfuse_client.py     # Langfuse client unit tests
+├── test_queries.json            # Test queries in proper JSON format
+└── __init__.py                # Test package initialization
 .env.example                  # Environment variables template
 ```
 
@@ -418,7 +419,94 @@ python3 -m src.main cache-clear --department tech
 
 ⸻
 
-## 10. Results & Metrics
+## 10. Testing
+
+The project includes a comprehensive test suite organized in the `./tests/` directory.
+
+### Test Suite Structure
+
+```
+tests/
+├── test_cli_tracing.py         # Comprehensive CLI tracing tests
+├── test_langfuse_client.py     # Langfuse client unit tests
+├── test_queries.json            # Test queries in proper JSON format
+└── __init__.py                # Test package initialization
+```
+
+### Running Tests
+
+#### 1. Comprehensive CLI Tracing Tests (Recommended)
+```bash
+# Run full CLI tracing test suite
+python tests/test_cli_tracing.py
+
+# This test validates:
+# ✅ Basic query processing with Langfuse tracing
+# ✅ Multiple query types and agent routing
+# ✅ Tracing behavior and parent-child relationships
+# ✅ CLI interface functionality
+```
+
+#### 2. Langfuse Client Unit Tests
+```bash
+# Run Langfuse client unit tests with pytest (recommended)
+python3 -m pytest tests/test_langfuse_client.py -v
+
+# Or run directly as a script (requires proper Python path):
+PYTHONPATH="${PYTHONPATH}:$(pwd)" python3 tests/test_langfuse_client.py
+
+# This tests:
+# ✅ Langfuse client initialization
+# ✅ Trace creation and management
+# ✅ Method availability and functionality
+# ✅ Dummy trace interface compatibility
+```
+
+#### 3. Integration Testing via CLI
+```bash
+# Test system integration using the CLI interface
+python3 -m src.main test --file tests/test_queries.json
+
+# Test without quality evaluation (faster)
+python3 -m src.main test --file tests/test_queries.json --no-evaluation
+
+# Test single query with tracing
+python3 -m src.main query --query "What benefits am I entitled to?" --user-id "test_user"
+```
+
+#### 4. Run All Tests
+```bash
+# Option 1: Run tests individually (recommended for CLI tracing)
+python3 tests/test_cli_tracing.py && python3 -m pytest tests/test_langfuse_client.py -v
+
+# Option 2: Run only pytest-compatible tests
+python3 -m pytest tests/test_langfuse_client.py -v
+
+# Note: test_cli_tracing.py must be run as a script, not with pytest,
+# because it uses a custom class structure with __init__ constructor
+```
+
+### Test Coverage & Quality
+
+#### Langfuse Tracing Validation
+The CLI tracing tests verify that your Langfuse observability is working correctly:
+
+1. **Named Root Traces**: `multi_agent_query_processing`
+2. **Parent-Child Relationships**: Proper hierarchy of nested observations
+3. **Complete Trace Structure**: All operations properly logged
+4. **Metadata and Timing**: Rich context for debugging and monitoring
+
+#### Query Processing Validation
+Test queries validate:
+
+- **HR Department**: Employee benefits, policies, time-off procedures
+- **Tech Department**: Software, hardware, IT support issues
+- **Finance Department**: Budget, expenses, financial procedures
+- **Quality Evaluation**: Automated scoring across dimensions
+
+⸻
+
+## 11. Results & Metrics
 
 Latest Test Results (from 19 test queries)
 	•	Classification Accuracy: 68.4%
@@ -431,9 +519,9 @@ These numbers are based on a comprehensive test set of 19 real-world HR, Tech, a
 
 ⸻
 
-## 11. Technical Decisions
+## 12. Technical Decisions
 
-### 11.1 Why LangChain
+### 12.1 Why LangChain
 
 I chose LangChain instead of custom orchestration for several reasons:
 
@@ -442,22 +530,22 @@ I chose LangChain instead of custom orchestration for several reasons:
 	•	Cleaner composition of multi-step workflows
 	•	Easier to swap models, retrievers, and tools as the system grows
 
-### 11.2 Why FAISS + Sentence Transformers
+### 12.2 Why FAISS + Sentence Transformers
 	•	FAISS gives me fast similarity search over dense vectors, suitable for mid-sized documentation.
 	•	all-MiniLM-L6-v2 offers compact, high-quality sentence embeddings with good performance/latency trade-offs.
 	•	Together they provide robust semantic retrieval without overcomplicating the infrastructure.
 
-### 11.3 Why Semantic Classification (Not Rules)
+### 12.3 Why Semantic Classification (Not Rules)
 	•	Handles paraphrases and non-standard phrasing better than keyword rules.
 	•	Easy to extend: to add a department, I just add more prototype examples and documents.
 	•	Produces confidence scores, which I can use to control routing and escalation logic.
 
-### 11.4 Why Langfuse for Observability
+### 12.4 Why Langfuse for Observability
 	•	Purpose-built for LLM observability, tracing and evaluation, not just generic logging.
 	•	Direct integration with Python and LangChain.
 	•	Gives me a clear view of each query's journey through the multi-agent pipeline.
 
-### 11.5 Why Persistent Storage & Caching
+### 12.5 Why Persistent Storage & Caching
 	•	Production Performance: Instant system startup with pre-built FAISS indices and embeddings
 	•	Scalability: Store large document collections without memory constraints
 	•	Reliability: Persistent indices survive system restarts and crashes
@@ -466,7 +554,7 @@ I chose LangChain instead of custom orchestration for several reasons:
 
 ⸻
 
-## 12. Limitations & Future Work
+## 13. Limitations & Future Work
 
 Current limitations:
 	•	Only three departments implemented (HR, Tech, Finance).
@@ -481,7 +569,7 @@ Planned improvements:
 
 ⸻
 
-## 13. Conclusion
+## 14. Conclusion
 
 Henry Bot M3 is my implementation of a multi-agent intelligent routing system that:
 	•	Classifies user intent with semantic similarity

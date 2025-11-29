@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 import json
 
 from openai import OpenAI
+from langfuse import observe
 
 from .base import BaseAgent, AgentResponse
 from ..utils.mock_llm import MockOpenAI
@@ -91,13 +92,15 @@ class RAGAgent(BaseAgent):
             print(f"Error initializing {self.name} agent: {e}")
             raise
 
+    @observe(name="rag_agent_processing")
     async def process_query(self, query: str, trace=None) -> AgentResponse:
         """
         Process a query and return a specialized response.
+        @observe decorator automatically creates a nested observation.
 
         Args:
             query: The input query to process
-            trace: Optional Langfuse trace for observability
+            trace: Optional Langfuse trace for backward compatibility
 
         Returns:
             AgentResponse with answer, confidence, and metadata

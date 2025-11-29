@@ -261,15 +261,153 @@ The `expected_department` field is used to calculate classification accuracy, wh
 
 ## 🧪 Testing
 
+The project includes a comprehensive test suite organized in the `./tests/` directory.
+
+### Test Suite Structure
+
+```
+tests/
+├── test_cli_tracing.py          # Comprehensive CLI tracing tests
+├── test_langfuse_client.py      # Langfuse client unit tests
+├── test_queries.json            # Test data for various query types
+└── __init__.py                  # Test package initialization
+```
+
+### Running Tests
+
+#### 1. Comprehensive CLI Tracing Tests (Recommended)
 ```bash
-# Run integration tests
-pytest tests/test_integration.py -v
+# Run full CLI tracing test suite
+python tests/test_cli_tracing.py
 
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
+# This test validates:
+# ✅ Basic query processing with Langfuse tracing
+# ✅ Multiple query types and agent routing
+# ✅ Tracing behavior and parent-child relationships
+# ✅ CLI interface functionality
+```
 
-# Run specific test
-pytest tests/test_integration.py::TestMultiAgentIntegration::test_single_query_processing -v
+#### 2. Langfuse Client Unit Tests
+```bash
+# Run Langfuse client unit tests with pytest (recommended)
+python3 -m pytest tests/test_langfuse_client.py -v
+
+# Or run directly as a script (requires proper Python path):
+PYTHONPATH="${PYTHONPATH}:$(pwd)" python3 tests/test_langfuse_client.py
+
+# This tests:
+# ✅ Langfuse client initialization
+# ✅ Trace creation and management
+# ✅ Method availability and functionality
+# ✅ Dummy trace interface compatibility
+```
+
+#### 3. Integration Testing via CLI
+```bash
+# Test system integration using the CLI interface
+python -m src.main test --file tests/test_queries.json
+
+# Test without quality evaluation (faster)
+python -m src.main test --file tests/test_queries.json --no-evaluation
+
+# Test single query with tracing
+python -m src.main query --query "What benefits am I entitled to?" --user-id "test_user"
+```
+
+#### 4. Run All Tests
+```bash
+# Option 1: Run tests individually (recommended for CLI tracing)
+python3 tests/test_cli_tracing.py && python3 -m pytest tests/test_langfuse_client.py -v
+
+# Option 2: Run only pytest-compatible tests
+python3 -m pytest tests/test_langfuse_client.py -v
+
+# Note: test_cli_tracing.py must be run as a script, not with pytest,
+# because it uses a custom class structure with __init__ constructor
+```
+
+### Test Coverage & Quality
+
+#### Langfuse Tracing Validation
+The CLI tracing tests verify that your Langfuse observability is working correctly:
+
+1. **Named Root Traces**: `multi_agent_query_processing`
+2. **Parent-Child Relationships**: Proper hierarchy of nested observations
+3. **Complete Trace Structure**: All operations properly logged
+4. **Metadata and Timing**: Rich context for debugging and monitoring
+
+#### Query Processing Validation
+Test queries validate:
+
+- **HR Department**: Employee benefits, policies, time-off procedures
+- **Tech Department**: Software, hardware, IT support issues
+- **Finance Department**: Budget, expenses, financial procedures
+- **Quality Evaluation**: Automated scoring across dimensions
+
+#### Expected Test Output
+
+Successful test run should show:
+```
+🎉 CLI TRACING TEST SUMMARY
+============================================================
+Results: 3/3 test suites passed
+✅ Basic query processing with tracing
+✅ Multiple query paths tested
+✅ Tracing logs analyzed
+
+📈 Final Verification:
+🔍 Check your Langfuse dashboard for:
+   • Named root traces: 'multi_agent_query_processing'
+   • Proper parent-child relationships
+   • Complete trace hierarchy
+   • Timing and metadata
+
+✅ No more unnamed traces!
+✅ Proper parent-child nesting!
+```
+
+### Running Tests in CI/CD
+
+For automated testing environments:
+
+```bash
+# Set up test environment
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+export OPENROUTER_API_KEY="test-key"
+
+# Run tests
+python tests/test_cli_tracing.py
+python tests/test_langfuse_client.py
+```
+
+### Debugging Failed Tests
+
+If tests fail:
+
+1. **Check Environment Variables**: Ensure `.env` file is properly configured
+2. **Check Dependencies**: Run `pip install -r requirements.txt`
+3. **Check Python Path**: Ensure you're running from the project root
+4. **Check System Status**: Run `python -m src.main status` first
+
+### Custom Test Queries
+
+You can modify `tests/test_queries.json` to add custom test scenarios:
+
+```json
+{
+  "queries": [
+    {
+      "query": "What are our security policies?",
+      "expected_department": "hr",
+      "user_id": "custom_test_1"
+    },
+    {
+      "query": "How do I reset my VPN password?",
+      "expected_department": "tech",
+      "user_id": "custom_test_2"
+    }
+  ]
+}
 ```
 
 ## 📁 Project Structure
@@ -312,9 +450,10 @@ store/                         # Persistent FAISS indices storage
 └── metadata/                 # Document metadata
 
 tests/                          # Test suite
-└── test_integration.py        # Integration tests
-
-test_queries.json              # Test queries in proper JSON format
+├── test_cli_tracing.py         # Comprehensive CLI tracing tests
+├── test_langfuse_client.py     # Langfuse client unit tests
+├── test_queries.json            # Test queries in proper JSON format
+└── __init__.py                # Test package initialization
 .env.example                  # Environment variables template
 ```
 

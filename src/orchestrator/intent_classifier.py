@@ -6,6 +6,7 @@ import asyncio
 from typing import Dict, Tuple, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from langfuse import observe
 
 from src.config import settings
 from src.utils import langfuse_client
@@ -94,13 +95,15 @@ class IntentClassifier:
             print(f"Error initializing intent classifier: {e}")
             raise
 
+    @observe(name="intent_classification")
     async def classify(self, query: str, trace=None) -> Tuple[str, float, Dict[str, float]]:
         """
         Classify the query intent and return the predicted department.
+        @observe decorator automatically creates a nested observation.
 
         Args:
             query: The input query to classify
-            trace: Optional Langfuse trace for observability
+            trace: Optional Langfuse trace for backward compatibility
 
         Returns:
             Tuple of (predicted_department, confidence, all_scores)
