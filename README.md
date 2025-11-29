@@ -411,6 +411,14 @@ The system provides a comprehensive CLI for production management:
 - `store-info`/`store-clear` - Persistent storage management
 - `--department` flag for department-specific operations
 
+## 👤 Author & Support
+
+Developed by [Esteban Camargo](https://github.com/estebmaister)
+
+📧 **Email**: [estebmaister@gmail.com](mailto:estebmaister@gmail.com)
+🌐 **LinkedIn**: [https://linkedin.com/in/estebmaister](https://linkedin.com/in/estebmaister)
+🐙 **GitHub**: [https://github.com/estebmaister](https://github.com/estebmaister)
+
 ## 📜 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
