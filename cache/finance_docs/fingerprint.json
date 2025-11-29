@@ -1,0 +1,13 @@
+{
+  "embedding_model": "all-MiniLM-L6-v2",
+  "files": {
+    "financial_policies.md": {
+      "mtime": 1763475659.389608,
+      "size": 4277
+    },
+    "expenses_and_budgets.md": {
+      "mtime": 1763475619.7750614,
+      "size": 4382
+    }
+  }
+}

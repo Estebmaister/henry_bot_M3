@@ -1,0 +1,13 @@
+{
+  "embedding_model": "all-MiniLM-L6-v2",
+  "files": {
+    "software_development.md": {
+      "mtime": 1763475575.4886425,
+      "size": 4276
+    },
+    "it_support.md": {
+      "mtime": 1763475557.1052954,
+      "size": 3600
+    }
+  }
+}

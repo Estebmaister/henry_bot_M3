@@ -1,0 +1,99 @@
+{
+  "queries": [
+    {
+      "query": "What benefits am I entitled to as a new employee?",
+      "expected_department": "hr",
+      "user_id": "test_user_1"
+    },
+    {
+      "query": "How do I request time off for vacation?",
+      "expected_department": "hr",
+      "user_id": "test_user_2"
+    },
+    {
+      "query": "What's the company policy on remote work?",
+      "expected_department": "hr",
+      "user_id": "test_user_3"
+    },
+    {
+      "query": "How do I enroll in the health insurance plan?",
+      "expected_department": "hr",
+      "user_id": "test_user_4"
+    },
+    {
+      "query": "What's the procedure for requesting a salary advance?",
+      "expected_department": "finance",
+      "user_id": "test_user_5"
+    },
+    {
+      "query": "How do I submit expense reports for reimbursement?",
+      "expected_department": "finance",
+      "user_id": "test_user_6"
+    },
+    {
+      "query": "What's our department budget for Q3?",
+      "expected_department": "finance",
+      "user_id": "test_user_7"
+    },
+    {
+      "query": "How do I get approval for a software purchase?",
+      "expected_department": "finance",
+      "user_id": "test_user_8"
+    },
+    {
+      "query": "My laptop won't connect to the VPN",
+      "expected_department": "tech",
+      "user_id": "test_user_9"
+    },
+    {
+      "query": "How do I reset my password for the internal systems?",
+      "expected_department": "tech",
+      "user_id": "test_user_10"
+    },
+    {
+      "query": "What's the process for getting software development tools installed?",
+      "expected_department": "tech",
+      "user_id": "test_user_11"
+    },
+    {
+      "query": "How do I report a security vulnerability?",
+      "expected_department": "tech",
+      "user_id": "test_user_12"
+    },
+    {
+      "query": "Can I work from home permanently?",
+      "expected_department": "hr",
+      "user_id": "test_user_13"
+    },
+    {
+      "query": "Why is the company VPN so slow?",
+      "expected_department": "tech",
+      "user_id": "test_user_14"
+    },
+    {
+      "query": "How do I get access to the production database?",
+      "expected_department": "tech",
+      "user_id": "test_user_15"
+    },
+    {
+      "query": "When do we get paid?",
+      "expected_department": "finance",
+      "user_id": "test_user_16"
+    },
+    {
+      "query": "What's the dress code policy?",
+      "expected_department": "hr",
+      "user_id": "test_user_17"
+    },
+    {
+      "query": "How do I connect to the office Wi-Fi?",
+      "expected_department": "tech",
+      "user_id": "test_user_18"
+    },
+    {
+      "query": "Can I get a second monitor for my home setup?",
+      "expected_department": "tech",
+      "user_id": "test_user_19"
+    }
+  ]
+}
