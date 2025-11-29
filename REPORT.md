@@ -314,7 +314,7 @@ This makes it easy to debug:
 
 ### 7.3 Tracing example
 
-![langfuse example][./docs/langfuse.png]
+![langfuse example](./docs/langfuse.png)
 
 ⸻
 
